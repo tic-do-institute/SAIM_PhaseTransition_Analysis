@@ -34,9 +34,7 @@ This codebase corresponds strictly to the methods defined in **Supplementary Tex
    ```bash
    python SAIM_pipeline_v1.0.py
 
-```
-
-3. **Outputs**:
+3.　**Outputs**:
 The script will automatically generate:
 * `*_TimeSeries.csv`: Frame-by-frame metric calculations.
 * `*_Overall_Stats.csv`: Session-level statistics.
@@ -50,3 +48,4 @@ The script will automatically generate:
 This project is licensed under the MIT License - see the [LICENSE](https://www.google.com/search?q=LICENSE) file for details.
 
 ```
+
