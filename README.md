@@ -17,7 +17,7 @@ While we acknowledge the existence of advanced artifact removal techniques (e.g.
 
 ## Overview
 
-This repository provides the core components of the study, including the physiological calibration pipeline ensuring data quality:
+This repository provides the three core components of the study:
 
 1. **Calibration & Noise Validation (`calibration_analysis.py`)**:
    A strict quality control script that verifies the separation between neural signals (EEG) and myogenic artifacts (EMG) using a standardized "Standing Calibration Protocol".
@@ -33,47 +33,50 @@ This repository provides the core components of the study, including the physiol
 
 ---
 
-## Methodological Rationale
-
-To ensure physiological interpretability given the portable hardware constraints, this pipeline adopts a **Proxy-Based Approach**:
-
-* **Gamma Band (PE Proxy):** Gamma power is treated as a macro-scale proxy for prediction error signaling. Myogenic contamination is mitigated via strict experimental protocols rather than aggressive filtering that might distort phase dynamics.
-* **HEMO (Stability Proxy):** Optical signals are processed to quantify **Neurovascular Coupling Stability** (signal-to-noise consistency) based on raw photodiode variance, avoiding assumptions about optical pathlength required for absolute hemoglobin quantification.
-
-For a detailed technical validation, please refer to our **Technical Report**:
-📄 **[Muse_Technical_Validation.pdf](./docs/Muse_Technical_Validation.pdf)**
-
----
-
-## Calibration & Noise Validation
+## 1. Calibration & Noise Validation (Quality Control)
 
 To guarantee signal validity, all subjects underwent a strict **Standing Calibration Protocol** prior to the main experiment. The `calibration_analysis.py` script automatically verifies the signal quality based on the following logic.
 
-### 1. Protocol
+### Protocol
 * **Rest (0-55s):** Standing, Eyes Closed. (Baseline EEG)
 * **Tasks (After 59s):**
   1. **Jaw Clench:** Standing, Eyes Closed. (Temporalis muscle activation)
   2. **Eyebrow Raise:** Standing, **Eyes Open**. (Maximized Frontalis muscle activation)
   3. **Blink:** Standing, Natural. (EOG artifact)
 
-### 2. Analysis Logic (`calibration_analysis.py`)
+### Analysis Logic (`calibration_analysis.py`)
 The script employs a **Hybrid Detection Algorithm**:
 * **Reference Standard (S001):** Uses medically validated, manually fixed timing windows to serve as the ground truth for signal separation.
 * **Automated Screening (S002+):** Applies a "59-second skip rule" followed by a sequential peak detection algorithm (Jaw → Eye → Blink) to automatically validate each subject.
-* **Pass Criteria:** A significant difference in spectral slope and power distribution between Rest and Jaw phases (Diff > 0.3) is required for inclusion.
+* **Pass Criteria:** A significant difference in spectral slope and linear power between Rest and Jaw phases (Diff > 0.3) is required for inclusion.
 
 ---
 
-## Requirements
+## 2. Main Analysis Logic (`SAIM_pipeline_v1.0.py`)
 
-* Python 3.8+
-* Dependencies:
-  * `pandas>=1.3.0`
-  * `numpy>=1.21.0`
-  * `matplotlib>=3.4.0`
-  * `seaborn>=0.11.0`
-  * `scipy>=1.7.0`
-  * `scikit-learn>=0.24.0`
+This pipeline processes raw physiological data to quantify the "Frozen Attractor" state. The core algorithms are defined as follows:
+
+### A. Free Energy Proxy (F)
+We utilize **Gamma Band Power (30-45 Hz)** as a macro-scale proxy for prediction error (PE) signaling, based on predictive coding frameworks (Friston et al.).
+* **Preprocessing:** Short-time Fourier Transform (STFT) with a 1-second Hanning window.
+* **Metric:** $F(t) = \log(P_{\gamma}(t) / P_{baseline})$
+* **Rationale:** Gamma oscillations correlate with bottom-up prediction error propagation.
+
+### B. Hemodynamic Coupling (HEMO)
+We quantify the stability of neurovascular coupling using raw infrared (IR) and red light photodiode signals.
+* **Metric:** Variance of the raw PPG signal over a sliding window.
+* **Interpretation:** High variance indicates robust hemodynamic responsiveness; low variance (flatline) indicates "Hemodynamic Uncoupling" or stress-induced vasoconstriction.
+
+### C. PPEN Detection (Rule C: Paradoxical Rigidity)
+The pipeline automatically detects "Proprioceptive Prediction Error Neglect" (PPEN) when the system enters a specific state of high-rigidity but low-adaptability.
+
+**Detection Logic:**
+A time window is flagged as **PPEN (Frozen State)** if:
+1. **High Gamma (F):** The system is generating excessive prediction errors (Hyper-priors).
+2. **Low HEMO:** Despite high electrical activity, hemodynamic supply is suppressed (Uncoupling).
+3. **Low Beta:** Lack of top-down motor suppression.
+
+> *Note: This "Paradoxical Rigidity" index is the primary biomarker for the "Frozen Attractor" discussed in the manuscript.*
 
 ---
 
@@ -84,13 +87,14 @@ The script employs a **Hybrid Detection Algorithm**:
 
 .
 ├── data/
-│   └── calibration/
-│       └── S001_Calibration.csv  # Sample validated data for demo
-├── docs/                         # Documentation & Validation Reports
+│   ├── calibration/
+│   │   └── S001_Calibration.csv  # Sample validated data for demo
+│   └── (Main experiment data not included for privacy)
+├── docs/
 │   └── Muse_Technical_Validation.pdf
 ├── output/                       # Generated CSVs and PNGs
 ├── calibration_analysis.py       # Quality Control Script (Hybrid Logic)
-├── SAIM_pipeline_v1.0.py         # Main Analysis Script
+├── SAIM_pipeline_v1.0.py         # Main Analysis Script (F, HEMO, PPEN)
 ├── simulation.py                 # Generative Model Script
 ├── LICENSE
 └── README.md
@@ -108,7 +112,7 @@ python calibration_analysis.py
 
 ```
 
-* **Output:** Prints the `Status` (OK/CHECK) and spectral difference metrics for each subject found in the data folder.
+* **Output:** Prints the `Status` (OK/CHECK) and spectral metrics for each subject.
 
 ### 2. Empirical Data Analysis (S9)
 
@@ -129,7 +133,7 @@ python SAIM_pipeline_v1.0.py
 * **Outputs**:
 * `*_TimeSeries.csv`: Frame-by-frame metric calculations.
 * `*_Overall_Stats.csv`: Session-level statistics (Pre vs Post).
-* `*_Continuous_Dynamics.png`: Visualization of the phase transition with interpolation.
+* `*_Continuous_Dynamics.png`: Visualization of the phase transition.
 * `*_OmniPanel.png`: The 20-panel spectral profiling plot (Figure 2).
 
 
@@ -142,8 +146,6 @@ To reproduce the theoretical bistable dynamics and SIP mechanism (Figure 1):
 python simulation.py
 
 ```
-
-* **Outputs**: Displays/Saves the "Phase Transition via SIP" plot, illustrating the transition from the Frozen Attractor to the Adaptive State.
 
 ---
 
