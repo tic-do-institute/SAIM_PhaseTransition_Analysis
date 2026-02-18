@@ -1,0 +1,194 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+
+# --- Plotting Standards (High Resolution & Typography) ---
+plt.rcParams.update({
+    'font.family': 'sans-serif',
+    'font.sans-serif': ['Arial', 'Helvetica', 'DejaVu Sans'],
+    'font.size': 7,
+    'axes.labelsize': 8,
+    'axes.titlesize': 9,
+    'xtick.labelsize': 7,
+    'ytick.labelsize': 7,
+    'legend.fontsize': 6,
+    'lines.linewidth': 1.0,
+    'figure.titlesize': 10,
+    'savefig.dpi': 600,
+    'savefig.bbox': 'tight',
+    'savefig.pad_inches': 0.05,
+    'mathtext.fontset': 'stixsans' 
+})
+
+# ==============================================================================
+# 1. ANALYTICAL SOLVER: DISCRIMINANT METHOD
+# ==============================================================================
+def get_cubic_discriminant(a, b, c, d):
+    """
+    Calculates the discriminant of the cubic nullcline.
+    Delta = 0 corresponds strictly to the Saddle-Node Bifurcation point.
+    """
+    return 18*a*b*c*d - 4*(b**3)*d + (b**2)*(c**2) - 4*a*(c**3) - 27*(a**2)*(d**2)
+
+def get_exact_roots(k, L, U, H, alpha, sigma):
+    """
+    Solves -k*g^3 + ... - alpha*sigma = 0 for exact fixed points.
+    """
+    a = -k
+    b = k * (L + U + H)
+    c = -k * (L*H + U*H + L*U)
+    d = k * (L*U*H) - alpha * sigma
+    
+    roots = np.roots([a, b, c, d])
+    real_roots = roots[np.isreal(roots)].real
+    return np.sort(real_roots)
+
+def find_critical_sigma_via_discriminant(k, L, U, H, alpha):
+    """
+    Identifies sigma_c analytically where the discriminant crosses zero.
+    """
+    sigmas = np.linspace(0, 5, 10000)
+    for s in sigmas:
+        a = -k
+        b = k * (L + U + H)
+        c = -k * (L*H + U*H + L*U)
+        d_val = k * (L*U*H) - alpha * s
+        delta = get_cubic_discriminant(a, b, c, d_val)
+        if delta < 0: # Transition from bistable (+) to monostable (-)
+            return s
+    return None
+
+# ==============================================================================
+# 2. THERMODYNAMIC EFFICIENCY DEFINITION
+# ==============================================================================
+def calculate_thermodynamic_efficiency(gamma, sigma):
+    """
+    Generalized Response Metric (Proxy for Kalman Gain).
+    eta = gamma / (gamma + sigma)
+    """
+    return gamma / (gamma + sigma + 1e-9) 
+
+# ==============================================================================
+# 3. MAIN PLOTTING ROUTINE
+# ==============================================================================
+def generate_figure1():
+    # Model Parameters (Must match Theory SI)
+    k = 1.0; L = 0.5; U = 3.0; H = 6.0; alpha = 5.0
+    
+    # Setup Figure (PNAS Single Column Width: 8.7cm approx 3.42 inches)
+    fig = plt.figure(figsize=(3.42, 6.8))
+    gs = gridspec.GridSpec(3, 1, hspace=0.65, height_ratios=[1, 0.8, 0.9])
+
+    # --- PANEL A: Canonical Bifurcation Map ---
+    ax0 = fig.add_subplot(gs[0])
+    
+    # 1. Analytical Critical Point
+    sigma_c = find_critical_sigma_via_discriminant(k, L, U, H, alpha)
+    
+    # 2. Compute Branches
+    sigma_vals = np.linspace(0, 3.5, 600)
+    r_high, r_mid, r_low = [], [], []
+    
+    for s in sigma_vals:
+        roots = get_exact_roots(k, L, U, H, alpha, s)
+        if len(roots) == 3:
+            r_low.append(roots[0]); r_mid.append(roots[1]); r_high.append(roots[2])
+        else:
+            # Post-bifurcation: only low state exists
+            r_low.append(roots[0]); r_mid.append(np.nan); r_high.append(np.nan)
+            
+    # 3. Plot Lines
+    ax0.plot(sigma_vals, r_high, 'k-', lw=1.5, label='Stable Attractor')
+    ax0.plot(sigma_vals, r_low, 'k-', lw=1.5)
+    ax0.plot(sigma_vals, r_mid, ':', color='gray', lw=1.2, label='Unstable Saddle')
+    
+    # --- OPTIMIZED LABEL PLACEMENT FOR PANEL A ---
+    # Vertical Line (Thinner, Alpha)
+    ax0.axvline(sigma_c, color='#E41A1C', ls='--', lw=0.8, alpha=0.6)
+    
+    # 1. Delta = 0 Label
+    ax0.annotate(r'$\Delta(\sigma_c) = 0$', 
+                 xy=(sigma_c, 7.5), xycoords='data',
+                 xytext=(sigma_c - 1.2, 7.5), textcoords='data',
+                 arrowprops=dict(arrowstyle="->", color='#E41A1C', lw=0.8),
+                 color='#E41A1C', fontsize=7, fontweight='bold', ha='right', va='center')
+
+    # 2. Sigma_c Label
+    ax0.text(sigma_c + 0.05, 0.2, r'$\sigma_c$', color='#E41A1C', fontsize=7, ha='left', va='bottom', fontweight='bold')
+
+    # Hysteresis Region
+    ax0.fill_betweenx([0, 9], 0, sigma_c, color='gray', alpha=0.1)
+    ax0.text(sigma_c/2, 4.5, "Bistable\nRegion", ha='center', va='center', fontsize=6, color='#555555')
+
+    ax0.set_ylabel(r"Precision $\gamma$")
+    ax0.set_xlabel(r"Control Parameter $\sigma$ (Uncertainty)")
+    ax0.set_title("A. Canonical Bifurcation Map", loc='left', fontweight='bold')
+    ax0.set_ylim(0, 8.5); ax0.set_xlim(0, 3.5)
+    ax0.legend(loc='upper right', frameon=False, fontsize=5)
+
+    # --- PANEL B: Thermodynamic Efficiency ---
+    ax1 = fig.add_subplot(gs[1])
+    
+    # Create composite curve for efficiency (Hysteresis path)
+    gamma_eff = np.array(r_high)
+    gamma_eff[np.isnan(gamma_eff)] = np.array(r_low)[np.isnan(gamma_eff)]
+    
+    eta = calculate_thermodynamic_efficiency(gamma_eff, sigma_vals)
+    
+    ax1.plot(sigma_vals, eta, 'k-', lw=1.5)
+    
+    # Adaptive vs Dissipative Zones
+    ax1.fill_between(sigma_vals, 0, eta, where=(sigma_vals < sigma_c), color='#4DAF4A', alpha=0.3)
+    ax1.fill_between(sigma_vals, 0, eta, where=(sigma_vals >= sigma_c), color='#E41A1C', alpha=0.3)
+    
+    # Annotations
+    ax1.text(0.9, 0.4, "Work $\\to$ Information\n(High $\eta$)", ha='center', color='#006400', fontsize=6, fontweight='bold')
+    ax1.text(2.8, 0.15, r"$\eta \to 0$ (Dissipation)", ha='center', color='#8B0000', fontsize=6, fontweight='bold')
+    
+    ax1.set_ylabel(r"Efficiency $\eta$")
+    ax1.set_xlabel(r"Control Parameter $\sigma$")
+    ax1.set_title("B. Thermodynamic Efficiency", loc='left', fontweight='bold')
+    ax1.set_ylim(0, 1.1); ax1.set_xlim(0, 3.5)
+
+    # --- PANEL C: Landscape Topology (Exact Integration) ---
+    ax2 = fig.add_subplot(gs[2])
+    
+    g_range = np.linspace(0, 7.5, 250)
+    
+    def get_V(g, s):
+        # Integral of Force F(g)
+        a, b, c, d = -k, k*(L+U+H), -k*(L*H+U*H+L*U), k*L*U*H - alpha*s
+        return -((a/4)*g**4 + (b/3)*g**3 + (c/2)*g**2 + d*g)
+
+    # Calculate Potentials
+    V_healthy = get_V(g_range, 0.5); V_healthy -= V_healthy.min()
+    V_critical = get_V(g_range, sigma_c); V_critical -= V_critical.min()
+    V_collapsed = get_V(g_range, 3.0); V_collapsed -= V_collapsed.min()
+    
+    # Offsets for Visual Clarity (Topology emphasis)
+    offset_crit = 25 
+    offset_coll = 50 
+    
+    ax2.plot(g_range, V_healthy, color='#4DAF4A', lw=1.2, label=r'Healthy ($\sigma \ll \sigma_c$)')
+    ax2.plot(g_range, V_critical + offset_crit, color='#FF7F00', lw=1.2, label=r'Critical ($\sigma = \sigma_c$)')
+    ax2.plot(g_range, V_collapsed + offset_coll, color='#E41A1C', lw=1.2, label=r'Collapsed ($\sigma > \sigma_c$)')
+    
+    # Mark Attractor Destabilization
+    idx_crit = np.argmin(np.abs(g_range - 6.0))
+    ax2.text(6.0, V_critical[idx_crit] + offset_crit + 8, "Attractor\nDestabilization", ha='center', fontsize=5)
+    ax2.scatter([6.0], [V_critical[idx_crit] + offset_crit], color='k', s=10, marker='x')
+
+    ax2.set_ylabel("Potential $V(\gamma)$")
+    ax2.set_xlabel(r"State Space $\gamma$")
+    ax2.set_title("C. Topological Irreversibility", loc='left', fontweight='bold')
+    ax2.set_yticks([])
+    ax2.legend(loc='upper left', frameon=False, fontsize=5)
+    ax2.set_xlim(0, 7.5)
+    ax2.set_ylim(-5, np.max(V_collapsed) + offset_coll + 10)
+
+    plt.tight_layout()
+    plt.savefig('Figure_1.png')
+    print("Figure_1.png Generated successfully.")
+
+if __name__ == "__main__":
+    generate_figure1()
